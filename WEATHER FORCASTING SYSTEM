@@ -1,0 +1,87 @@
+#include<stdio.h>
+#include<curl/curl.h>
+#include<json-c/json.h>
+
+
+struct MemoryStruct {
+  char *memory;
+  size_t size;
+};
+
+ WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp) {
+  size_t realsize = size * nmemb;
+  struct MemoryStruct *mem = (struct MemoryStruct *)userp;
+
+  char *ptr = realloc(mem->memory, mem->size + realsize + 1);
+  if(ptr == NULL) {
+    /* out of memory! */ 
+    printf("Not enough memory (realloc returned NULL)\n");
+    return 0;
+  }
+
+  mem->memory = ptr;
+  memcpy(&(mem->memory[mem->size]), contents, realsize);
+  mem->size += realsize;
+  mem->memory[mem->size] = '\0';
+
+  return realsize;
+}
+
+void get_weather_data(const char *city_name) {
+  CURL *curl;
+  CURLcode res;
+
+  struct MemoryStruct chunk;
+
+  chunk.memory = malloc(1);
+  chunk.size = 0;
+
+  char api_url[256];
+  sprintf(api_url, API_URL, city_name, API_KEY);
+
+  curl = curl_easy_init();
+  if(curl) {
+    curl_easy_setopt(curl, CURLOPT_URL, api_url);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
+
+    res = curl_easy_perform(curl);
+
+    if(res != CURLE_OK) {
+      fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+    }
+    else {
+      json_object *json, *weather, *main, *wind, *description, *temp, *humidity, *speed;
+
+      json = json_tokener_parse(chunk.memory);
+
+      json_object_object_get_ex(json, "weather", &weather);
+      description = json_object_array_get_idx(weather, 0);
+      printf("Weather description: %s\n\n", json_object_get_string(json_object_object_get(description, "description")));
+
+      json_object_object_get_ex(json, "main", &main);
+      temp = json_object_object_get(main, "temp");
+      printf("Temperature: %sC\n", json_object_get_string(temp));
+      humidity = json_object_object_get(main, "humidity");
+      printf("Humidity: %s%%\n\n", json_object_get_string(humidity));
+
+      json_object_object_get_ex(json, "wind", &wind);
+      speed = json_object_object_get(wind, "speed");
+      printf("Wind Speed: %sm/s\n", json_object_get_string(speed));
+    }
+
+    curl_easy_cleanup(curl);
+  }
+
+  free(chunk.memory);
+}
+
+int main() {
+  char city_name[256];
+  printf("Enter the city name: ");
+  scanf("%s", city_name);
+
+  get_weather_data(city_name);
+
+  return 0;
+}
